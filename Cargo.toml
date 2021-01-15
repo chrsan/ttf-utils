@@ -1,0 +1,14 @@
+[package]
+name = "ttf-utils"
+version = "0.1.0"
+authors = ["Christer Sandberg <chrsan@gmail.com>"]
+keywords = ["ttf", "truetype", "otf", "opentype"]
+license = "MIT OR Apache-2.0"
+description = "ttf-parser utils"
+readme="README.md"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ttf-parser = { version = "^0.9", default-features = true }
