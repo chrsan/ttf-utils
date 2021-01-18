@@ -1,5 +1,8 @@
 # ttf-utils
 
+[![Crates.io](https://img.shields.io/crates/v/ttf-utils.svg)](https://crates.io/crates/ttf-utils)
+[![Documentation](https://docs.rs/ttf-utils/badge.svg)](https://docs.rs/ttf-utils)
+
 Post-processing utilities for [ttf-parser](https://github.com/RazrFalcon/ttf-parser).
 
 ## Example
