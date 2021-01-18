@@ -20,7 +20,7 @@ impl BBox {
         self.x_max - self.x_min
     }
 
-    /// Returns bbox height.
+    /// Returns the bbox height.
     #[inline]
     pub fn height(&self) -> f32 {
         self.y_max - self.y_min
@@ -47,58 +47,183 @@ impl Default for BBox {
     }
 }
 
-/// The embolden strength used in FreeType.
-pub const FT_EMBOLDEN_STRENGTH: f32 = 20.0;
+/// A glyph outline.
+#[derive(Debug, Clone)]
+pub struct Outline {
+    bbox: std::cell::Cell<Option<BBox>>,
+    cff: bool,
+    contours: Vec<Contour>,
+}
 
-/// Emboldens a glyph outline and returns its tight bounding box.
-pub fn embolden(
-    face: &ttf_parser::Face,
-    glyph_id: ttf_parser::GlyphId,
-    builder: &mut dyn ttf_parser::OutlineBuilder,
-    strength: f32,
-) -> Option<BBox> {
-    let mut outline = Outline::default();
-    let mut outline_builder = OutlineBuilder::new(&mut outline);
-    let _ = face.outline_glyph(glyph_id, &mut outline_builder)?;
-    outline.embolden(strength);
+impl Outline {
+    /// Returns a new outline or `None` when the glyph has no outline or on error.
+    pub fn new(face: &ttf_parser::Face, glyph_id: ttf_parser::GlyphId) -> Option<Self> {
+        let mut outline = Outline {
+            bbox: std::cell::Cell::new(None),
+            cff: face.has_table(ttf_parser::TableName::CompactFontFormat)
+                || face.has_table(ttf_parser::TableName::CompactFontFormat2),
+            contours: Vec::new(),
+        };
+        let mut outline_builder = OutlineBuilder::new(&mut outline);
+        let _ = face.outline_glyph(glyph_id, &mut outline_builder)?;
+        Some(outline)
+    }
 
-    let mut bbox = BBox::default();
-    let mut points = outline.0.iter().flat_map(|c| &c.points);
-    for v in outline.0.iter().flat_map(|c| &c.verbs) {
-        match v {
-            PathVerb::MoveTo => {
-                let p = points.next().unwrap();
+    /// Returns the outline bounding box.
+    pub fn bbox(&self) -> BBox {
+        if let Some(bbox) = self.bbox.get() {
+            bbox
+        } else {
+            let mut bbox = BBox::default();
+            for p in self.contours.iter().flat_map(|c| &c.points) {
                 bbox.extend_by(p.x, p.y);
-                builder.move_to(p.x, p.y);
             }
-            PathVerb::LineTo => {
-                let p = points.next().unwrap();
-                bbox.extend_by(p.x, p.y);
-                builder.line_to(p.x, p.y);
+
+            self.bbox.set(Some(bbox));
+            bbox
+        }
+    }
+
+    /// Embolden the outline.
+    pub fn embolden(&mut self, strength: f32) {
+        self.bbox.set(None);
+        for c in &mut self.contours {
+            let num_points = c.points.len();
+            if num_points == 0 {
+                continue;
             }
-            PathVerb::QuadTo => {
-                let p1 = points.next().unwrap();
-                let p = points.next().unwrap();
-                bbox.extend_by(p1.x, p1.y);
-                bbox.extend_by(p.x, p.y);
-                builder.quad_to(p1.x, p1.y, p.x, p.y);
+
+            let closed = num_points > 1 && c.points.last() == c.points.first();
+            let last = if closed {
+                num_points - 2
+            } else {
+                num_points - 1
+            };
+
+            let mut in_pt = Point::default();
+            let mut in_len = 0f32;
+
+            let mut anchor_pt = Point::default();
+            let mut anchor_len = 0f32;
+
+            let mut i = last;
+            let mut j = 0;
+            let mut k: Option<usize> = None;
+            while i != j && Some(i) != k {
+                let (out_pt, out_len) = if Some(j) != k {
+                    let x = c.points[j].x - c.points[i].x;
+                    let y = c.points[j].y - c.points[i].y;
+                    let len = (x * x + y * y).sqrt();
+                    if len != 0.0 {
+                        (Point::new(x / len, y / len), len)
+                    } else {
+                        j = if j < last { j + 1 } else { 0 };
+                        continue;
+                    }
+                } else {
+                    (anchor_pt, anchor_len)
+                };
+
+                if in_len != 0.0 {
+                    if k.is_none() {
+                        k = Some(i);
+                        anchor_pt = in_pt;
+                        anchor_len = in_len;
+                    }
+
+                    let d = (in_pt.x * out_pt.x) + (in_pt.y * out_pt.y);
+                    let shift_pt = if d > -0.9375 {
+                        let d = d + 1.0;
+                        let mut q = out_pt.x * in_pt.y - out_pt.y * in_pt.x;
+                        if !self.cff {
+                            q = -q;
+                        }
+
+                        let len = in_len.min(out_len);
+                        let (x, y) = if self.cff {
+                            (in_pt.y + out_pt.y, -(in_pt.x + out_pt.x))
+                        } else {
+                            (-(in_pt.y + out_pt.y), in_pt.x + out_pt.x)
+                        };
+                        if (strength * q) <= (len * d) {
+                            Point::new(x * strength / d, y * strength / d)
+                        } else {
+                            Point::new(x * len / q, y * len / q)
+                        }
+                    } else {
+                        Point::default()
+                    };
+
+                    while i != j {
+                        let pt = &mut c.points[i];
+                        pt.x += strength + shift_pt.x;
+                        pt.y += strength + shift_pt.y;
+                        i = if i < last { i + 1 } else { 0 };
+                    }
+                } else {
+                    i = j;
+                }
+
+                in_pt = out_pt;
+                in_len = out_len;
+                j = if j < last { j + 1 } else { 0 };
             }
-            PathVerb::CurveTo => {
-                let p1 = points.next().unwrap();
-                let p2 = points.next().unwrap();
-                let p = points.next().unwrap();
-                bbox.extend_by(p1.x, p1.y);
-                bbox.extend_by(p2.x, p2.y);
-                bbox.extend_by(p.x, p.y);
-                builder.curve_to(p1.x, p1.y, p2.x, p2.y, p.x, p.y);
-            }
-            PathVerb::Close => {
-                builder.close();
+
+            if closed {
+                let first = &c.points[0];
+                c.points[num_points - 1] = *first;
             }
         }
     }
 
-    Some(bbox)
+    /// Slant the outline.
+    pub fn oblique(&mut self, x_skew: f32) {
+        self.bbox.set(None);
+        for c in &mut self.contours {
+            for p in &mut c.points {
+                if p.y != 0.0 {
+                    p.x += p.y * x_skew;
+                }
+            }
+        }
+    }
+
+    /// Emit the outline segments.
+    pub fn emit(&self, builder: &mut dyn ttf_parser::OutlineBuilder) {
+        let mut points = self.contours.iter().flat_map(|c| &c.points);
+        for v in self.contours.iter().flat_map(|c| &c.verbs) {
+            match v {
+                PathVerb::MoveTo => {
+                    let p = points.next().unwrap();
+                    builder.move_to(p.x, p.y);
+                }
+                PathVerb::LineTo => {
+                    let p = points.next().unwrap();
+                    builder.line_to(p.x, p.y);
+                }
+                PathVerb::QuadTo => {
+                    let p1 = points.next().unwrap();
+                    let p = points.next().unwrap();
+                    builder.quad_to(p1.x, p1.y, p.x, p.y);
+                }
+                PathVerb::CurveTo => {
+                    let p1 = points.next().unwrap();
+                    let p2 = points.next().unwrap();
+                    let p = points.next().unwrap();
+                    builder.curve_to(p1.x, p1.y, p2.x, p2.y, p.x, p.y);
+                }
+                PathVerb::Close => {
+                    builder.close();
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+struct Contour {
+    verbs: Vec<PathVerb>,
+    points: Vec<Point>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -123,104 +248,6 @@ impl Point {
     }
 }
 
-#[derive(Debug, Default)]
-struct Contour {
-    verbs: Vec<PathVerb>,
-    points: Vec<Point>,
-}
-
-#[derive(Debug, Default)]
-struct Outline(Vec<Contour>);
-
-impl Outline {
-    fn embolden(&mut self, strength: f32) {
-        for c in &mut self.0 {
-            let last = c.points.len().saturating_sub(2);
-            if last == 0 {
-                continue;
-            }
-
-            let mut in_pt = Point::default();
-            let mut in_len = 0f32;
-
-            let mut anchor_pt = Point::default();
-            let mut anchor_len = 0f32;
-
-            let mut i = last;
-            let mut j = 0;
-            let mut k: Option<usize> = None;
-            let advance = |x: &mut usize| {
-                *x = if *x < last { *x + 1 } else { 0 };
-            };
-
-            while i != j && Some(i) != k {
-                let mut out_pt = Point::default();
-                let out_len = if Some(j) != k {
-                    let x = c.points[j].x - c.points[i].x;
-                    let y = c.points[j].y - c.points[i].y;
-                    let len = (x * x + y * y).sqrt();
-                    if len != 0.0 {
-                        out_pt.x = x / len;
-                        out_pt.y = y / len;
-                        len
-                    } else {
-                        advance(&mut j);
-                        continue;
-                    }
-                } else {
-                    out_pt = anchor_pt;
-                    anchor_len
-                };
-
-                if in_len != 0.0 {
-                    if k == None {
-                        k = Some(i);
-                        anchor_pt = in_pt;
-                        anchor_len = in_len;
-                    }
-
-                    let mut shift_pt = Point::default();
-                    let d = (in_pt.x * out_pt.x) + (in_pt.y * out_pt.y);
-                    if d > -0.9375 {
-                        let d = d + 1.0;
-                        shift_pt.x = -(in_pt.y + out_pt.y);
-                        shift_pt.y = in_pt.x + out_pt.x;
-                        let q = -((out_pt.x * in_pt.y) - (out_pt.y * in_pt.x));
-                        let len = in_len.min(out_len);
-                        if (strength * q) <= (len * d) {
-                            shift_pt.x = (shift_pt.x * strength) / d;
-                            shift_pt.y = (shift_pt.y * strength) / d;
-                        } else {
-                            shift_pt.x = (shift_pt.x * len) / q;
-                            shift_pt.y = (shift_pt.y * len) / q;
-                        }
-                    }
-
-                    while i != j {
-                        let pt = &mut c.points[i];
-                        pt.x += strength + shift_pt.x;
-                        pt.y += strength + shift_pt.y;
-                        advance(&mut i);
-                    }
-                } else {
-                    i = j;
-                }
-
-                in_pt = out_pt;
-                in_len = out_len;
-                advance(&mut j);
-            }
-
-            let num_points = c.points.len();
-            if num_points > 1 {
-                let first = c.points[0];
-                c.points[num_points - 1] = first;
-            }
-        }
-    }
-}
-
-#[derive(Debug)]
 struct OutlineBuilder<'a> {
     outline: &'a mut Outline,
     current_contour: usize,
@@ -237,11 +264,11 @@ impl<'a> OutlineBuilder<'a> {
 
     #[inline]
     fn current_contour(&mut self) -> &mut Contour {
-        if self.current_contour > self.outline.0.len() {
-            self.outline.0.push(Contour::default());
+        if self.current_contour > self.outline.contours.len() {
+            self.outline.contours.push(Contour::default());
         }
 
-        &mut self.outline.0[self.current_contour - 1]
+        &mut self.outline.contours[self.current_contour - 1]
     }
 }
 
@@ -274,13 +301,7 @@ impl<'a> ttf_parser::OutlineBuilder for OutlineBuilder<'a> {
     }
 
     fn close(&mut self) {
-        let c = self.current_contour();
-        let n = c.points.len();
-        if n > 1 {
-            debug_assert_eq!(c.points[0], c.points[n - 1]);
-        }
-
-        c.verbs.push(PathVerb::Close);
+        self.current_contour().verbs.push(PathVerb::Close);
         self.current_contour += 1;
     }
 }

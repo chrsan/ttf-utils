@@ -2,9 +2,9 @@
 # It is not intended for manual editing.
 [[package]]
 name = "ttf-parser"
-version = "0.9.0"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62ddb402ac6c2af6f7a2844243887631c4e94b51585b229fcfddb43958cd55ca"
+checksum = "5d32211d8cbe770ffca415d35f8e600ee35786842b4a303dfc231e60c5cfaf0b"
 
 [[package]]
 name = "ttf-utils"
