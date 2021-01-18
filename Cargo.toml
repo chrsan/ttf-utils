@@ -13,3 +13,6 @@ edition = "2018"
 
 [dependencies]
 ttf-parser = { version = "^0.10", default-features = true }
+
+[dev-dependencies]
+structopt = "0.3"
