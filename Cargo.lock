@@ -171,7 +171,7 @@ checksum = "5d32211d8cbe770ffca415d35f8e600ee35786842b4a303dfc231e60c5cfaf0b"
 
 [[package]]
 name = "ttf-utils"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "structopt",
  "ttf-parser",

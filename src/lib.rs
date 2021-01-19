@@ -64,8 +64,15 @@ impl Outline {
             bbox
         } else {
             let mut bbox = BBox::default();
-            for p in self.contours.iter().flat_map(|c| &c.points) {
-                bbox.extend_by(p.x, p.y);
+            for (i, p) in self.contours.iter().flat_map(|c| &c.points).enumerate() {
+                if i == 0 {
+                    bbox.x_min = p.x;
+                    bbox.y_min = p.y;
+                    bbox.x_max = p.x;
+                    bbox.y_max = p.y;
+                } else {
+                    bbox.extend_by(p.x, p.y);
+                }
             }
 
             self.bbox.set(Some(bbox));

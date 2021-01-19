@@ -1,6 +1,6 @@
 [package]
 name = "ttf-utils"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Christer Sandberg <chrsan@gmail.com>"]
 keywords = ["ttf", "truetype", "otf", "opentype"]
 license = "MIT OR Apache-2.0"
