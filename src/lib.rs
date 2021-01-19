@@ -1,7 +1,7 @@
 //! `ttf-parser` utils.
 
 /// A bounding box.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct BBox {
     /// Minimum X coordinate.
     pub x_min: f32,
@@ -33,17 +33,6 @@ impl BBox {
         self.y_min = self.y_min.min(y);
         self.x_max = self.x_max.max(x);
         self.y_max = self.y_max.max(y);
-    }
-}
-
-impl Default for BBox {
-    fn default() -> Self {
-        Self {
-            x_min: f32::MAX,
-            y_min: f32::MAX,
-            x_max: f32::MIN,
-            y_max: f32::MIN,
-        }
     }
 }
 

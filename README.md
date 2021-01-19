@@ -7,7 +7,7 @@ Post-processing utilities for [ttf-parser](https://github.com/RazrFalcon/ttf-par
 
 ## Example
 
-Embolden a glyph outline.
+Embolden and slant a glyph outline.
 
 ```rust
 let face = ttf_parser::Face::from_slice(&font_data, 0).unwrap();
@@ -20,7 +20,7 @@ outline.emit(&mut builder);
 
 ## Credits
 
-The embolden algorithm is derived from the algorithm in the
+The embolden algorithm is derived from the algorithm in
 [FreeType](https://www.freetype.org).
 
 ## License
